@@ -19,10 +19,14 @@ PRECHECK_ROOT?=${HOME}/mpw_precheck
 SIM ?= RTL
 CUP_ROOT?=$(PWD)
 
+export MCW_ROOT = $(PWD)/mgmt_core_wrapper
 SKYWATER_COMMIT=f70d8ca46961ff92719d8870a18a076370b85f6c
 export OPEN_PDKS_COMMIT?=78b7bc32ddb4b6f14f76883c2e2dc5b5de9d1cbc
 export PDK?=sky130A
 export PDKPATH?=$(PDK_ROOT)/$(PDK)
+export GCC_PATH = /opt/riscv32i/bin
+
+export GCC_PREFIX = riscv32-unknown-elf
 # Install lite version of caravel, (1): caravel-lite, (0): caravel
 CARAVEL_LITE?=1
 
@@ -199,3 +203,43 @@ setup-cocotb:
 	@(python3 $(PROJECT_ROOT)/verilog/dv/setup-cocotb.py $(CARAVEL_ROOT) $(MCW_ROOT) $(PDK_ROOT) $(PDK) $(PROJECT_ROOT))
 	@docker pull efabless/dv:latest
 	@docker pull efabless/dv:cocotb
+
+#################################################
+##################### ADDED #####################
+#################################################
+
+dv_patterns=$(shell cd verilog/dv && find * -maxdepth 0 -type d)
+dv-targets-rtl=$(dv_patterns:%=verify-%-rtl)
+
+#TARGET_PATH=/home/jona/Desktop/FINAL-TEST-WISHBONE-CARAVAN/caravel_user_project_analog
+
+verify_command="source ~/.bashrc && cd ${TARGET_PATH}/verilog/dv/$* && export SIM=${SIM} && make"
+dv_base_dependencies=simenv
+
+###########################
+#### start verigy  ########
+###########################
+
+
+docker_run_verify_wb=\
+	docker run \
+		$(USER_ARGS) \
+		-v ${TARGET_PATH}:${TARGET_PATH} -v ${PDK_ROOT}:${PDK_ROOT} \
+		-v ${CARAVEL_ROOT}:${CARAVEL_ROOT} \
+		-v ${MCW_ROOT}:${MCW_ROOT} \
+		-e TARGET_PATH=${TARGET_PATH} -e PDK_ROOT=${PDK_ROOT} \
+		-e CARAVEL_ROOT=${CARAVEL_ROOT} \
+		-e TOOLS=/foss/tools/riscv-gnu-toolchain-rv32i/217e7f3debe424d61374d31e33a091a630535937 \
+		-e DESIGNS=$(TARGET_PATH) \
+		-e USER_PROJECT_VERILOG=$(TARGET_PATH)/verilog \
+		-e PDK=$(PDK) \
+		-e CORE_VERILOG_PATH=$(TARGET_PATH)/mgmt_core_wrapper/verilog \
+		-e CARAVEL_VERILOG_PATH=$(TARGET_PATH)/caravel/verilog \
+		-e MCW_ROOT=$(MCW_ROOT) \
+		efabless/dv:latest \
+		sh -c $(verify_command)
+
+
+$(dv-targets-rtl): SIM=RTL
+$(dv-targets-rtl): verify-%-rtl: $(dv_base_dependencies)
+	$(docker_run_verify_wb)
